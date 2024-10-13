@@ -126,7 +126,8 @@ class DynamixelControl {
         void setConnect( bool set_connect )                   { connect_ = set_connect; }
         void setOpeMode( uint8_t set_ope_mode )               { ope_mode_ = set_ope_mode; }
         void setGearRatio( double set_gear_ratio )            { gear_ratio_ = set_gear_ratio; }
-        void setLimits( joint_limits_interface::JointLimits& set_limits ) { limits_ = set_limits; }
+        void setLimits( joint_limits_interface::JointLimits& set_limits )              { limits_      = set_limits; }
+        void setSoftLimits( joint_limits_interface::SoftJointLimits& set_soft_limits ) { soft_limits_ = set_soft_limits; }
         void setDxlPresentPos( int32_t set_dxl_pos )          { dxl_present_pos_ = set_dxl_pos; }
         void setDxlPresentVel( int32_t set_dxl_vel )          { dxl_present_vel_ = set_dxl_vel; }
         void setDxlPresentAcc( int32_t set_dxl_acc )          { dxl_present_acc_ = set_dxl_acc; }
@@ -195,7 +196,8 @@ class DynamixelControl {
         uint8_t     ope_mode_;
         double      gear_ratio_;
 
-        joint_limits_interface::JointLimits limits_;
+        joint_limits_interface::JointLimits     limits_;
+        joint_limits_interface::SoftJointLimits soft_limits_;
 
         uint8_t  dxl_goal_pos_[4];
         int32_t  dxl_present_pos_;
