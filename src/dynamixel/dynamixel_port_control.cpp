@@ -4,7 +4,10 @@
 
 namespace dynamixel_port_control {
 DynamixelPortControl::DynamixelPortControl( ros::NodeHandle nh, dynamixel_setting::DynamixelSetting &setting ){
-    pub_current_ = nh.advertise<sobits_msgs::current_state_array>("/current_state_array", 100);
+    pub_current_ = nh.advertise<sobits_msgs::current_state_array>("current_state_array", 100); // [Real Robot]
+    pub_lower_joints_ = nh.advertise<sensor_msgs::JointState>("joint_lower_cmd", 10); // [Isaac SIM]
+    pub_upper_joints_ = nh.advertise<sensor_msgs::JointState>("joint_upper_cmd", 10); // [Isaac SIM]
+
     dxl_res_     = true;
     joint_num_   = setting.getJointNum();
 
@@ -26,70 +29,98 @@ DynamixelPortControl::DynamixelPortControl( ros::NodeHandle nh, dynamixel_settin
         joint_list_.push_back(work);
     }
 
-    packet_handler_ = dynamixel::PacketHandler::getPacketHandler(dynamixel_control::PROTOCOL_VERSION);
-    port_handler_   = dynamixel::PortHandler::getPortHandler(setting.getPortName().c_str());
+    // [Real Robot]
+    // packet_handler_ = dynamixel::PacketHandler::getPacketHandler(dynamixel_control::PROTOCOL_VERSION);
+    // port_handler_   = dynamixel::PortHandler::getPortHandler(setting.getPortName().c_str());
 
-    read_status_group_.reset   (new dynamixel::GroupBulkRead (port_handler_, packet_handler_));
-    write_position_group_.reset(new dynamixel::GroupBulkWrite(port_handler_, packet_handler_));
+    // read_status_group_.reset   (new dynamixel::GroupBulkRead (port_handler_, packet_handler_));
+    // write_position_group_.reset(new dynamixel::GroupBulkWrite(port_handler_, packet_handler_));
 
-    for( int i = 0; i < joint_num_; i++ ){
-        uint8_t dxl_id = joint_list_[i].getDxlId();
-        if( !read_status_group_->addParam(dxl_id,
-                                          dynamixel_control::DYNAMIXEL_REG_TABLE[dynamixel_control::TABLE_ID_PRESENT_CURRENT].address,
-                                          dynamixel_control::DYNAMIXEL_REG_TABLE[dynamixel_control::TABLE_ID_PRESENT_POSITION].length
-                                        + dynamixel_control::DYNAMIXEL_REG_TABLE[dynamixel_control::TABLE_ID_PRESENT_CURRENT].length
-                                        + dynamixel_control::DYNAMIXEL_REG_TABLE[dynamixel_control::TABLE_ID_PRESENT_VELOCITY].length) ){
-            ROS_ERROR("[ID:%03d] groupBulkReadStatus addparam failed.", int(dxl_id));
-        }
-    }
+    // for( int i = 0; i < joint_num_; i++ ){
+    //     uint8_t dxl_id = joint_list_[i].getDxlId();
+    //     if( !read_status_group_->addParam(dxl_id,
+    //                                       dynamixel_control::DYNAMIXEL_REG_TABLE[dynamixel_control::TABLE_ID_PRESENT_CURRENT].address,
+    //                                       dynamixel_control::DYNAMIXEL_REG_TABLE[dynamixel_control::TABLE_ID_PRESENT_POSITION].length
+    //                                     + dynamixel_control::DYNAMIXEL_REG_TABLE[dynamixel_control::TABLE_ID_PRESENT_CURRENT].length
+    //                                     + dynamixel_control::DYNAMIXEL_REG_TABLE[dynamixel_control::TABLE_ID_PRESENT_VELOCITY].length) ){
+    //         ROS_ERROR("[ID:%03d] groupBulkReadStatus addparam failed.", int(dxl_id));
+    //     }
+    // }
 
-    // open_port
-    while( ros::ok() ){
-        if( port_handler_->openPort() ){
-            port_handler_->setBaudRate(setting.getBaudRate());
-            ROS_INFO("Dynamixel Connection Success.");
-            break;
-        } else{
-            ROS_ERROR("Dynamixel Connection Error.");
-            ros::Duration(0.5).sleep();
-        }
-    }
+    // // open_port
+    // while( ros::ok() ){
+    //     if( port_handler_->openPort() ){
+    //         port_handler_->setBaudRate(setting.getBaudRate());
+    //         ROS_INFO("Dynamixel Connection Success.");
+    //         break;
+    //     } else{
+    //         ROS_ERROR("Dynamixel Connection Error.");
+    //         ros::Duration(0.5).sleep();
+    //     }
+    // }
 
-    // connect and register the joint state interface
-    // register the joint limits interface
     joint_limits_interface::JointLimits     joint_limits;
     joint_limits_interface::SoftJointLimits soft_joint_limits;
 
+    // connect and register the joint state interface
     for( int i = 0; i < joint_num_; i++ ){
         hardware_interface::JointStateHandle state_handle(
-            joint_list_[i].getJointName(), joint_list_[i].getPositionAddr(), joint_list_[i].getVelocityAddr(), joint_list_[i].getEffortAddr());
+            joint_list_[i].getJointName(),
+            joint_list_[i].getPositionAddr(),
+            joint_list_[i].getVelocityAddr(),
+            joint_list_[i].getEffortAddr()
+        );
         jnt_state_interface_.registerHandle(state_handle);
     }
     registerInterface(&jnt_state_interface_);
 
     // connect and register the joint position interface
     for( int i = 0; i < joint_num_; i++ ){
-        hardware_interface::JointHandle joint_handle(jnt_state_interface_.getHandle(joint_list_[i].getJointName()), joint_list_[i].getCommandAddr());
-        jnt_pos_interface_.registerHandle(joint_handle);
+        hardware_interface::JointHandle joint_handle(
+            jnt_state_interface_.getHandle(joint_list_[i].getJointName()),
+            joint_list_[i].getCommandAddr()
+        );
 
-        if( joint_limits_interface::getJointLimits(joint_list_[i].getJointName(), nh, joint_limits) ){
+        // [Isaac SIM] If the joint name contains "drive", register the joint velocity interface
+        if( joint_list_[i].getJointName().find("drive") != std::string::npos){
+            jnt_vel_interface_.registerHandle(joint_handle);
+
+            joint_limits_interface::getJointLimits(joint_list_[i].getJointName(), nh, joint_limits);
+            // joint_limits_interface::getSoftJointLimits(joint_list_[i].getJointName(), nh, soft_joint_limits);
+
             joint_list_[i].setLimits(joint_limits);
-            soft_joint_limits.k_position   = 1.0;
-            soft_joint_limits.k_velocity   = 1.0;
-            soft_joint_limits.max_position = joint_limits.max_position;
-            soft_joint_limits.min_position = joint_limits.min_position;
-            joint_limits_interface::PositionJointSoftLimitsHandle joint_limit_handle(joint_handle, joint_limits, soft_joint_limits);
+            // joint_list_[i].setSoftLimits(soft_joint_limits); // Trivial - not used during enforceLimits()
 
-            jnt_limit_interface_.registerHandle(joint_limit_handle);
+            joint_limits_interface::VelocityJointSaturationHandle joint_limit_handle(joint_handle, joint_limits);
+            // joint_limits_interface::VelocityJointSoftLimitsHandle joint_limit_handle(joint_handle, joint_limits, soft_joint_limits);
+
+            jnt_vel_limit_interface_.registerHandle(joint_limit_handle);
+
+        } else{
+            jnt_pos_interface_.registerHandle(joint_handle);
+
+            joint_limits_interface::getJointLimits(joint_list_[i].getJointName(), nh, joint_limits);
+            // joint_limits_interface::getSoftJointLimits(joint_list_[i].getJointName(), nh, soft_joint_limits);
+
+            joint_list_[i].setLimits(joint_limits);
+            // joint_list_[i].setSoftLimits(soft_joint_limits); // If used, k_p and k_d need to be tuned
+
+            joint_limits_interface::PositionJointSaturationHandle joint_limit_handle(joint_handle, joint_limits);
+            // joint_limits_interface::PositionJointSoftLimitsHandle joint_limit_handle(joint_handle, joint_limits, soft_joint_limits);
+
+            jnt_pos_limit_interface_.registerHandle(joint_limit_handle);
         }
     }
 
     registerInterface(&jnt_pos_interface_);
-    registerInterface(&jnt_limit_interface_);
+    registerInterface(&jnt_vel_interface_);       // [Isaac SIM]
+    registerInterface(&jnt_pos_limit_interface_);
+    registerInterface(&jnt_vel_limit_interface_); // [Isaac SIM]
 }
 
+// [Real Robot]
 bool DynamixelPortControl::read( ros::Time time, ros::Duration period ){
-  // read_status
+    // read_status
     dxl_res_            = true;
     int dxl_comm_result = read_status_group_->txRxPacket();
 
@@ -107,6 +138,25 @@ bool DynamixelPortControl::read( ros::Time time, ros::Duration period ){
     return true;
 }
 
+// [Isaac SIM]
+bool DynamixelPortControl::read(
+        std::map<std::string, double> &joints_pos,
+        std::map<std::string, double> &joints_vel,
+        std::map<std::string, double> &joints_eff ){
+    // read_status
+    dxl_res_            = true;
+
+    // Set the join info based on the map
+    for (size_t i = 0; i < joint_list_.size(); ++i) {
+        joint_list_[i].setPosition( joints_pos[joint_list_[i].getJointName()] );
+        joint_list_[i].setVelocity( joints_vel[joint_list_[i].getJointName()] );
+        joint_list_[i].setEffort  ( joints_eff[joint_list_[i].getJointName()] );
+    }
+
+    return true;
+}
+
+// [Real Robot]
 void DynamixelPortControl::readPosition( ros::Time time, ros::Duration period ){
     for( int i = 0; i < joint_num_; i++ ){
         uint8_t dxl_id             = joint_list_[i].getDxlId();
@@ -126,6 +176,7 @@ void DynamixelPortControl::readPosition( ros::Time time, ros::Duration period ){
     }
 }
 
+// [Real Robot]
 void DynamixelPortControl::readVelocity( ros::Time time, ros::Duration period ){
     for( int i = 0; i < joint_num_; i++ ){
         uint8_t dxl_id             = joint_list_[i].getDxlId();
@@ -145,6 +196,7 @@ void DynamixelPortControl::readVelocity( ros::Time time, ros::Duration period ){
     }
 }
 
+// [Real Robot]
 void DynamixelPortControl::readCurrent( ros::Time time, ros::Duration period ){
     sobits_msgs::current_state_array current_state_array;
 
@@ -174,6 +226,7 @@ void DynamixelPortControl::readCurrent( ros::Time time, ros::Duration period ){
     pub_current_.publish(current_state_array);
 }
 
+// [Real Robot]
 void DynamixelPortControl::write( ros::Time time, ros::Duration period ){
     for( int i = 0; i < joint_num_; i++ ){
         uint8_t                             dxl_id = joint_list_[i].getDxlId();
@@ -205,6 +258,32 @@ void DynamixelPortControl::write( ros::Time time, ros::Duration period ){
     write_position_group_->clearParam();
 }
 
+// [Isaac SIM]
+void DynamixelPortControl::write( ros::Duration period ){
+    sensor_msgs::JointState joint_state_position, joint_state_velocity;
+
+    for( int i = 0; i < joint_num_; i++ ){
+        double cmd = joint_list_[i].getCommand();
+
+        // [TODO]
+        // jnt_pos_limit_interface_.enforceLimits(period);
+        // jnt_vel_limit_interface_.enforceLimits(period);
+
+        // If the joint name contains "drive", register velocity
+        if( joint_list_[i].getJointName().find("drive") != std::string::npos){
+            joint_state_velocity.name.push_back(joint_list_[i].getJointName());
+            joint_state_velocity.velocity.push_back(cmd);
+        }else{
+            joint_state_position.name.push_back(joint_list_[i].getJointName());
+            joint_state_position.position.push_back(cmd);
+        }
+    }
+
+    pub_upper_joints_.publish(joint_state_position);
+    pub_lower_joints_.publish(joint_state_velocity);
+}
+
+// [Real Robot]
 void DynamixelPortControl::setTorque( uint8_t id, bool torque ){
     uint8_t mode            = torque ? dynamixel_control::TORQUE_ENABLE : dynamixel_control::TORQUE_DISABLE;
     uint8_t dxl_error       = 0;
@@ -219,6 +298,7 @@ void DynamixelPortControl::setTorque( uint8_t id, bool torque ){
     else ROS_INFO("Dynamixel #%d has been successfully connected.", int(id));
 }
 
+// [Real Robot]
 void DynamixelPortControl::setTorqueAll( bool torque ){
     for( int i = 0; i < joint_num_; i++ ){
         joint_list_[i].setTorque(torque);
@@ -226,6 +306,7 @@ void DynamixelPortControl::setTorqueAll( bool torque ){
     }
 }
 
+// [Real Robot]
 void DynamixelPortControl::setVelocityLim( uint8_t id, uint32_t vel_lim ){
     uint8_t dxl_error       = 0;
     int     dxl_comm_result = packet_handler_->write4ByteTxRx(port_handler_,
@@ -238,6 +319,7 @@ void DynamixelPortControl::setVelocityLim( uint8_t id, uint32_t vel_lim ){
     else if( dxl_error != 0 )                  packet_handler_->getRxPacketError(dxl_error);
 }
 
+// [Real Robot]
 void DynamixelPortControl::setAccelerationLim( uint8_t id, uint32_t acc_lim ){
     uint8_t dxl_error       = 0;
     int     dxl_comm_result = packet_handler_->write4ByteTxRx(port_handler_,
@@ -250,6 +332,7 @@ void DynamixelPortControl::setAccelerationLim( uint8_t id, uint32_t acc_lim ){
     else if( dxl_error != 0 )                  packet_handler_->getRxPacketError(dxl_error);
 }
 
+// [Real Robot]
 bool DynamixelPortControl::setCurrentLimit( uint8_t id, uint16_t current_lim ){
     if (!dxl_res_) return false;
 
@@ -265,6 +348,7 @@ bool DynamixelPortControl::setCurrentLimit( uint8_t id, uint16_t current_lim ){
     return true;
 }
 
+// [Real Robot]
 void DynamixelPortControl::setPositionDGain( uint8_t id, uint16_t d_gain ){
     uint8_t dxl_error       = 0;
     int     dxl_comm_result = packet_handler_->write2ByteTxRx(port_handler_,
@@ -277,6 +361,7 @@ void DynamixelPortControl::setPositionDGain( uint8_t id, uint16_t d_gain ){
     else if( dxl_error != 0 )                  packet_handler_->getRxPacketError(dxl_error);
 }
 
+// [Real Robot]
 void DynamixelPortControl::setPositionIGain( uint8_t id, uint16_t i_gain ){
     uint8_t dxl_error       = 0;
     int     dxl_comm_result = packet_handler_->write2ByteTxRx(port_handler_,
@@ -289,6 +374,7 @@ void DynamixelPortControl::setPositionIGain( uint8_t id, uint16_t i_gain ){
     else if( dxl_error != 0 )                  packet_handler_->getRxPacketError(dxl_error);
 }
 
+// [Real Robot]
 void DynamixelPortControl::setPositionPGain( uint8_t id, uint16_t p_gain ){
     uint8_t dxl_error       = 0;
     int     dxl_comm_result = packet_handler_->write2ByteTxRx(port_handler_,
@@ -301,6 +387,7 @@ void DynamixelPortControl::setPositionPGain( uint8_t id, uint16_t p_gain ){
     else if( dxl_error != 0 )                  packet_handler_->getRxPacketError(dxl_error);
 }
 
+// [Real Robot]
 void DynamixelPortControl::setOperationMode( uint8_t id, uint8_t mode ){
     uint8_t dxl_error       = 0;
     int     dxl_comm_result = packet_handler_->write1ByteTxRx(port_handler_,
@@ -313,6 +400,7 @@ void DynamixelPortControl::setOperationMode( uint8_t id, uint8_t mode ){
     else if( dxl_error != 0 )                  packet_handler_->getRxPacketError(dxl_error);
 }
 
+// [Real Robot]
 void DynamixelPortControl::initializeSettingParam(){
     for( int i = 0; i < joint_num_; i++ ){
         setAccelerationLim(joint_list_[i].getDxlId(), joint_list_[i].getDxlAccelerationLim());
@@ -328,6 +416,7 @@ void DynamixelPortControl::initializeSettingParam(){
     }
 }
 
+// [Real Robot]
 bool DynamixelPortControl::startUpPosition(){
     setTorqueAll(true);
 
@@ -389,7 +478,7 @@ bool DynamixelPortControl::startUpPosition(){
     return true;
 }
 
-// Debug
+// Needs Debug
 int DynamixelPortControl::getCurrentLoad( uint8_t id ){
     uint8_t  dxl_error = 0;
     uint16_t dxl_current;
