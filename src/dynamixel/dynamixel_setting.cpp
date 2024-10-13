@@ -10,14 +10,15 @@ DynamixelSetting::DynamixelSetting(ros::NodeHandle nh){
 }
 
 bool DynamixelSetting::load(){
-    if( !loadPortName() )   return false;
-    if( !loadBaudRate() )   return false;
+    // if( !loadPortName() )   return false; // [Real Robot]
+    // if( !loadBaudRate() )   return false; // [Real Robot]
     if( !loadJointList() )  return false;
     if( !loadJointParam() ) return false;
 
     return true;
 }
 
+// [Real Robot]
 bool DynamixelSetting::loadPortName(){
     std::string key_port_name = KEY_DXL_PORT + KEY_PORT_NAME;
     std::string port_name;
@@ -32,6 +33,7 @@ bool DynamixelSetting::loadPortName(){
     return true;
 }
 
+// [Real Robot]
 bool DynamixelSetting::loadBaudRate(){
     std::string key_baud_rate = KEY_DXL_PORT + KEY_BAUDARTE;
     int         baud_rate;
