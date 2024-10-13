@@ -13,6 +13,8 @@
 
 #include <sobits_msgs/current_state.h>
 #include <sobits_msgs/current_state_array.h>
+#include <sensor_msgs/JointState.h> // [Isaac SIM]
+
 #include "sobits_common/dynamixel/dynamixel_joint_control.h"
 #include "sobits_common/dynamixel/dynamixel_setting.h"
 
@@ -34,8 +36,10 @@ class DynamixelPortControl : public hardware_interface::RobotHW {
         ros::Time     getTime() const { return ros::Time::now(); }
         ros::Duration getDuration( ros::Time t ) const { return (ros::Time::now() - t); }
 
-        bool read ( ros::Time time, ros::Duration period );
-        void write( ros::Time time, ros::Duration period );
+        bool read ( ros::Time time, ros::Duration period ); // [Real Robot]
+        void write( ros::Time time, ros::Duration period ); // [Real Robot]
+        bool read ( std::map<std::string, double> &joints_pos, std::map<std::string, double> &joints_vel, std::map<std::string, double> &joints_eff ); // [Isaac SIM]
+        void write( ros::Duration period ); // [Isaac SIM]
 
         void initializeSettingParam();
         void updateSettingParam(){};
@@ -72,13 +76,22 @@ class DynamixelPortControl : public hardware_interface::RobotHW {
 
         hardware_interface::JointStateInterface    jnt_state_interface_;
         hardware_interface::PositionJointInterface jnt_pos_interface_;
-        joint_limits_interface::PositionJointSoftLimitsInterface jnt_limit_interface_;
+        hardware_interface::VelocityJointInterface jnt_vel_interface_;
+
+        // [TODO] - http://docs.ros.org/en/melodic/api/joint_limits_interface/html/c++/index.html
+        // joint_limits_interface::PositionJointSoftLimitsInterface jnt_pos_limit_interface_;
+        // joint_limits_interface::VelocityJointSoftLimitsInterface jnt_vel_limit_interface_;
+
+        joint_limits_interface::PositionJointSaturationInterface jnt_pos_limit_interface_;
+        joint_limits_interface::VelocityJointSaturationInterface jnt_vel_limit_interface_;
 
         std::unique_ptr<dynamixel::GroupBulkRead>  read_status_group_;
         std::unique_ptr<dynamixel::GroupBulkRead>  read_current_group_;
         std::unique_ptr<dynamixel::GroupBulkWrite> write_position_group_;
 
-        ros::Publisher pub_current_;
+        ros::Publisher pub_current_;      // [Real Robot]
+        ros::Publisher pub_lower_joints_; // [Isaac SIM]
+        ros::Publisher pub_upper_joints_; // [Isaac SIM]
 };
 
 }  // namespace dynamixel_port_control
