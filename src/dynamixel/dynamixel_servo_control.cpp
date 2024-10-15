@@ -91,7 +91,7 @@ int main(int argc, char** argv){
 
         // Read the joint states
         // dynamixel_servo_control.read(t, dt); // [Real Robot]
-        dynamixel_servo_control.read(t, dt); // [Isaac SIM]
+        dynamixel_servo_control.read(joints_pos, joints_vel, joints_eff); // [Isaac SIM]
 
         // Update the controller
         cm.update(t, dt);
